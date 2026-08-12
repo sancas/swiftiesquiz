@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pasapalabra: Taylor's Version - Multiplayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins:wght@300;400;600&display=swap');
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: radial-gradient(circle, #1a1a1a 0%, #000 100%);
+            color: white;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .screen { display: none; }
+        .screen.active { display: flex; }
+
+        /* Estilos del Rosco */
+        .rosco-container { position: relative; width: 500px; height: 500px; margin: 20px auto; }
+        .letter {
+            position: absolute; width: 40px; height: 40px; border-radius: 50%;
+            background: #2a2a2a; border: 2px solid #555; display: flex;
+            align-items: center; justify-content: center; font-weight: bold;
+            transition: all 0.3s ease; transform: translate(-50%, -50%); z-index: 10;
+        }
+        .letter.active { background: #fff; color: #000; box-shadow: 0 0 20px #fff; transform: translate(-50%, -50%) scale(1.3); z-index: 20; }
+        .letter.success { background: #22c55e; border-color: #16a34a; color: white; box-shadow: 0 0 10px #22c55e; }
+        .letter.error { background: #ef4444; border-color: #dc2626; color: white; box-shadow: 0 0 10px #ef4444; }
+
+        .main-card { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+
+        @media (max-width: 640px) {
+            .rosco-container { width: 320px; height: 320px; }
+            .letter { width: 25px; height: 25px; font-size: 10px; }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center py-10 px-4">
+
+    <header class="text-center mb-8 relative w-full max-w-6xl">
+        <button id="btn-show-admin" class="absolute right-0 top-0 text-gray-600 hover:text-white text-sm bg-gray-800 px-3 py-1 rounded">Admin</button>
+        <h1 class="text-5xl font-bold italic tracking-widest mb-2" style="font-family: 'Playfair Display';">Pasapalabra</h1>
+        <p class="text-xl text-gray-400 font-light italic">Taylor's Version</p>
+    </header>
+
+    <!-- PANTALLA 1: INICIO Y NIVELES -->
+    <div id="screen-home" class="screen active flex-col w-full max-w-md gap-6">
+        <div class="main-card p-8 rounded-3xl text-center shadow-2xl">
+            <h2 class="text-2xl font-bold mb-4">¡Bienvenida al Eras Tour!</h2>
+            <input type="text" id="player-nickname" placeholder="Ingresa tu Nickname..." class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-white/50 mb-6 text-center text-xl">
+            
+            <p class="mb-3 text-gray-400 text-sm uppercase tracking-widest">Selecciona tu nivel</p>
+            <div class="flex flex-col gap-3">
+                <button class="btn-start bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-all" data-level="debut" data-time="450">DEBUT (Principiante - 7:30 min)</button>
+                <button class="btn-start bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 rounded-xl transition-all" data-level="fearless" data-time="360">FEARLESS (Medio - 6:00 min)</button>
+                <button class="btn-start bg-red-700 hover:bg-red-600 text-white font-bold py-3 rounded-xl transition-all" data-level="mastermind" data-time="300">MASTERMIND (Avanzado - 5:00 min)</button>
+            </div>
+        </div>
+
+        <div class="main-card p-6 rounded-3xl shadow-2xl">
+            <h3 class="text-xl font-bold mb-4 text-center text-taylor-gold">Top 10 Swifties 🏆</h3>
+            <div id="leaderboard-list" class="flex flex-col gap-2 text-sm">
+                <p class="text-center text-gray-400">Cargando puntuaciones...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANTALLA 2: EL JUEGO -->
+    <div id="screen-game" class="screen flex-col lg:flex-row items-center justify-center gap-12 w-full max-w-6xl">
+        <div class="rosco-container" id="rosco"></div>
+        <div class="main-card p-8 rounded-3xl w-full max-w-md shadow-2xl relative">
+            <div class="flex justify-between mb-6">
+                <div class="text-center"><p class="text-xs uppercase text-gray-400">Aciertos</p><p id="success-count" class="text-3xl font-bold text-green-500">0</p></div>
+                <div class="text-center"><p class="text-xs uppercase text-gray-400">Tiempo</p><p id="timer" class="text-4xl font-bold text-yellow-400 drop-shadow-md">0</p></div>
+                <div class="text-center"><p class="text-xs uppercase text-gray-400">Errores</p><p id="error-count" class="text-3xl font-bold text-red-500">0</p></div>
+            </div>
+            <div id="game-ui">
+                <div class="mb-6 min-h-[110px]">
+                    <p id="letter-indicator" class="text-sm font-bold text-gray-300 uppercase tracking-widest mb-2 bg-white/10 inline-block px-3 py-1 rounded-full"></p>
+                    <p id="definition" class="text-lg leading-relaxed font-medium">Cargando preguntas desde la base de datos...</p>
+                </div>
+                <input type="text" id="answer-input" placeholder="Escribe tu respuesta..." autocomplete="off" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-white/50 mb-2 transition-all uppercase" disabled>
+                <p id="feedback-msg" class="text-sm font-bold text-green-400 mb-4 h-5 italic"></p>
+                <div class="grid grid-cols-2 gap-4">
+                    <button id="send-btn" class="bg-white text-black font-bold py-3 rounded-xl hover:bg-gray-200 transition-all" disabled>ENVIAR</button>
+                    <button id="pasapalabra-btn" class="bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-500 transition-all" disabled>PASAPALABRA</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANTALLA 3: RESULTADOS -->
+    <div id="screen-results" class="screen flex-col items-center w-full max-w-2xl">
+        <div class="main-card p-8 rounded-3xl w-full shadow-2xl text-center">
+            <h2 class="text-4xl font-bold mb-2 italic" style="font-family: 'Playfair Display';">¡Juego Terminado!</h2>
+            <div id="final-stats" class="mb-6 text-gray-300"></div>
+            <button onclick="location.reload()" class="bg-white text-black font-bold px-8 py-3 rounded-xl hover:bg-gray-200 transition-colors shadow-[0_0_15px_rgba(255,255,255,0.3)]">VOLVER AL INICIO</button>
+        </div>
+    </div>
+
+    <!-- PANTALLA 4: PANEL DE ADMINISTRACIÓN -->
+    <div id="screen-admin" class="screen flex-col w-full max-w-lg gap-6">
+        <div class="main-card p-8 rounded-3xl shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-blue-400">Panel Administrativo</h2>
+                <button id="btn-close-admin" class="text-gray-400 hover:text-white">✕ Cerrar</button>
+            </div>
+            
+            <p class="text-sm text-gray-300 mb-4">Añade nuevas preguntas a la base de datos de Firestore.</p>
+            
+            <select id="admin-letter" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white mb-4">
+                <option value="" disabled selected>Selecciona una letra...</option>
+                <!-- Opciones A-Z generadas por JS -->
+            </select>
+            
+            <input type="text" id="admin-answer" placeholder="Respuesta Correcta (Ej: CARDIGAN)" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white mb-4 uppercase">
+            
+            <textarea id="admin-question" placeholder="Pregunta (Ej: EMPIEZA POR C: Primera canción de folklore...)" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white mb-4 h-24"></textarea>
+            
+            <button id="btn-save-question" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all">GUARDAR PREGUNTA</button>
+            <p id="admin-msg" class="text-green-400 text-sm mt-3 text-center h-5"></p>
+
+            <hr class="border-white/10 my-6">
+            <button id="btn-seed-db" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 rounded-xl text-sm">Cargar Preguntas Base (Usar solo 1 vez)</button>
+        </div>
+    </div>
+
+    <!-- SCRIPTS DE FIREBASE Y LÓGICA -->
+    <script type="module">
+        // 1. IMPORTAR FIREBASE (Versión 10 Modular)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, query, orderBy, limit, doc, getDoc, setDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // ⚠️ ATENCIÓN: PEGA TU CONFIGURACIÓN DE FIREBASE AQUÍ ⚠️
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyAHYOGRv3UrHcgcK0ZS2sVG83k4NqUX8lU",
+  authDomain: "swiftie-6b7a1.firebaseapp.com",
+  projectId: "swiftie-6b7a1",
+  storageBucket: "swiftie-6b7a1.firebasestorage.app",
+  messagingSenderId: "343397280024",
+  appId: "1:343397280024:web:9ec286560dc0a17189d66d",
+  measurementId: "G-9DW2GTEPBD"
+};
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Variables Globales
+        let currentNickname = "";
+        let currentDifficulty = "";
+        let maxTime = 300;
+        let tolerance = 0; // Se ajustará por nivel
+
+        let gameQuestions = [];
+        let incorrectAnswers = [];
+        let currentIndex = 0;
+        let successCount = 0;
+        let errorCount = 0;
+        let timeLeft = 0;
+        let timerInterval;
+        let gameActive = false;
+
+        // Elementos UI
+        const screens = document.querySelectorAll('.screen');
+        const rosco = document.getElementById('rosco');
+        const input = document.getElementById('answer-input');
+        const definition = document.getElementById('definition');
+        const letterIndicator = document.getElementById('letter-indicator');
+        const timerDisplay = document.getElementById('timer');
+        const successDisplay = document.getElementById('success-count');
+        const errorDisplay = document.getElementById('error-count');
+        
+        // --- NAVEGACIÓN ---
+        function showScreen(screenId) {
+            screens.forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        // --- SISTEMA DE NIVELES E INICIO ---
+        document.querySelectorAll('.btn-start').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const nick = document.getElementById('player-nickname').value.trim();
+                if (!nick) { alert("¡Necesitas un Nickname para jugar!"); return; }
+                
+                currentNickname = nick;
+                currentDifficulty = btn.dataset.level;
+                maxTime = parseInt(btn.dataset.time);
+                timeLeft = maxTime;
+                
+                // Asignar tolerancia según nivel
+                if(currentDifficulty === 'debut') tolerance = 2; // Perdona más errores
+                else if(currentDifficulty === 'fearless') tolerance = 1;
+                else tolerance = 0; // Mastermind: estricto (o solo 1 error en palabras largas)
+
+                showScreen('screen-game');
+                await loadGameQuestions();
+            });
+        });
+
+        // --- FIREBASE: CARGAR PREGUNTAS ---
+        async function loadGameQuestions() {
+            try {
+                // Descargar el documento que contiene todas las letras
+                const docRef = doc(db, "gameData", "questionBank");
+                const docSnap = await getDoc(docRef);
+                
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+                    alphabet.splice(14, 0, "Ñ"); // Añadir la Ñ
+                    
+                    gameQuestions = [];
+                    alphabet.forEach(letter => {
+                        const options = data[letter] || [];
+                        if(options.length > 0) {
+                            // Elegir una aleatoria
+                            const selected = options[Math.floor(Math.random() * options.length)];
+                            gameQuestions.push({ letter: letter, answer: selected.answer, question: selected.question, status: 0 });
+                        } else {
+                            // Fallback si falta la letra
+                            gameQuestions.push({ letter: letter, answer: "TAYLOR", question: "Falta configurar esta letra en la BD.", status: 0 });
+                        }
+                    });
+                    
+                    initRoscoUI();
+                } else {
+                    alert("No hay preguntas en la base de datos. Ve al panel de admin y haz clic en 'Cargar Preguntas Base'.");
+                }
+            } catch (e) {
+                console.error("Error al cargar preguntas", e);
+                definition.textContent = "Error al conectar con la base de datos.";
+            }
+        }
+
+        // --- LÓGICA DEL JUEGO (Rosco y Validación) ---
+        function initRoscoUI() {
+            rosco.innerHTML = '';
+            const total = gameQuestions.length;
+            const radius = window.innerWidth < 640 ? 140 : 220;
+            const centerX = window.innerWidth < 640 ? 160 : 250;
+            const centerY = window.innerWidth < 640 ? 160 : 250;
+
+            gameQuestions.forEach((q, i) => {
+                const angle = (i * 360 / total) - 90;
+                const x = centerX + radius * Math.cos(angle * Math.PI / 180);
+                const y = centerY + radius * Math.sin(angle * Math.PI / 180);
+                const div = document.createElement('div');
+                div.className = 'letter'; div.id = `letter-${i}`; div.textContent = q.letter;
+                div.style.left = `${x}px`; div.style.top = `${y}px`;
+                rosco.appendChild(div);
+            });
+            
+            // Habilitar controles
+            input.disabled = false;
+            document.getElementById('send-btn').disabled = false;
+            document.getElementById('pasapalabra-btn').disabled = false;
+            gameActive = true;
+            
+            updateCurrentQuestion();
+            startTimer();
+        }
+
+        function updateCurrentQuestion() {
+            if (!gameActive) return;
+            let count = 0;
+            while (gameQuestions[currentIndex].status !== 0 && count < gameQuestions.length) {
+                currentIndex = (currentIndex + 1) % gameQuestions.length; count++;
+            }
+            if (count === gameQuestions.length) { finishGame(); return; }
+
+            document.querySelectorAll('.letter').forEach(l => l.classList.remove('active'));
+            document.getElementById(`letter-${currentIndex}`).classList.add('active');
+            letterIndicator.textContent = `Letra ${gameQuestions[currentIndex].letter}`;
+            definition.textContent = gameQuestions[currentIndex].question;
+            input.value = ''; input.focus();
+        }
+
+        function normalizeString(str) { return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase(); }
+        
+        function getLevenshteinDistance(a, b) {
+            const m = [];
+            for (let i = 0; i <= b.length; i++) m[i] = [i];
+            for (let j = 0; j <= a.length; j++) m[0][j] = j;
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) m[i][j] = m[i - 1][j - 1];
+                    else m[i][j] = Math.min(m[i - 1][j - 1] + 1, m[i][j - 1] + 1, m[i - 1][j] + 1);
+                }
+            }
+            return m[b.length][a.length];
+        }
+
+        function checkAnswer() {
+            if(!gameActive) return;
+            const userVal = normalizeString(input.value);
+            if (!userVal) return;
+            const currentQ = gameQuestions[currentIndex];
+            const correct = normalizeString(currentQ.answer);
+            const dist = getLevenshteinDistance(userVal, correct);
+            
+            // Lógica de tolerancia dinámica por nivel
+            let allowedErrors = tolerance;
+            if(currentDifficulty === 'mastermind' && correct.length > 5) allowedErrors = 1; // Un poquito de piedad en nivel difícil
+
+            const msg = document.getElementById('feedback-msg');
+            msg.textContent = "";
+
+            if (dist <= allowedErrors) {
+                if (dist > 0) msg.textContent = `¡Aceptado como "${currentQ.answer}"!`;
+                currentQ.status = 1;
+                document.getElementById(`letter-${currentIndex}`).classList.add('success');
+                successCount++; successDisplay.textContent = successCount;
+            } else {
+                currentQ.status = 2;
+                document.getElementById(`letter-${currentIndex}`).classList.add('error');
+                errorCount++; errorDisplay.textContent = errorCount;
+                incorrectAnswers.push({ letter: currentQ.letter, question: currentQ.question, user: input.value, correct: currentQ.answer });
+            }
+            
+            currentIndex = (currentIndex + 1) % gameQuestions.length;
+            if(dist > 0 && dist <= allowedErrors) setTimeout(updateCurrentQuestion, 1200);
+            else updateCurrentQuestion();
+        }
+
+        document.getElementById('send-btn').addEventListener('click', checkAnswer);
+        document.getElementById('pasapalabra-btn').addEventListener('click', () => {
+            document.getElementById('feedback-msg').textContent = "";
+            currentIndex = (currentIndex + 1) % gameQuestions.length;
+            updateCurrentQuestion();
+        });
+        input.addEventListener('keypress', (e) => { if (e.key === 'Enter') checkAnswer(); });
+
+        function startTimer() {
+            timerDisplay.textContent = timeLeft;
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerDisplay.textContent = timeLeft;
+                if (timeLeft <= 10) timerDisplay.classList.add('text-red-500', 'animate-pulse');
+                if (timeLeft <= 0) finishGame();
+            }, 1000);
+        }
+
+        // --- FIREBASE: GUARDAR PUNTUACIÓN Y FIN DEL JUEGO ---
+        async function finishGame() {
+            gameActive = false;
+            clearInterval(timerInterval);
+            
+            // Marcar no respondidas
+            gameQuestions.forEach(q => {
+                if(q.status === 0) incorrectAnswers.push({ letter: q.letter, question: q.question, user: "(Sin responder)", correct: q.answer });
+            });
+
+            // Guardar en Firestore
+            try {
+                await addDoc(collection(db, "leaderboard"), {
+                    nickname: currentNickname,
+                    aciertos: successCount,
+                    tiempoRestante: timeLeft > 0 ? timeLeft : 0,
+                    nivel: currentDifficulty,
+                    fecha: new Date().toISOString()
+                });
+            } catch(e) { console.error("Error guardando score", e); }
+
+            showScreen('screen-results');
+            
+            let htmlContent = `
+                <p class="text-2xl text-taylor-gold mb-4">${currentNickname}, nivel ${currentDifficulty.toUpperCase()}</p>
+                <div class="flex justify-center gap-6 mb-6 text-lg">
+                    <span class="text-green-400 font-bold">Aciertos: ${successCount}</span>
+                    <span class="text-blue-400 font-bold">Tiempo sobrante: ${timeLeft > 0 ? timeLeft : 0}s</span>
+                </div>
+            `;
+            // (Código simplificado para mostrar errores)
+            if (incorrectAnswers.length > 0) {
+                htmlContent += `<div class="mt-4 text-left"><h3 class="text-lg text-red-400 mb-2">Correcciones:</h3><div class="max-h-56 overflow-y-auto space-y-2">`;
+                incorrectAnswers.forEach(err => {
+                    htmlContent += `<div class="bg-black/40 p-3 rounded text-sm"><span class="font-bold text-white mr-2">${err.letter}</span><span class="text-red-300">Tú: ${err.user}</span> | <span class="text-green-400">Correcta: ${err.correct}</span></div>`;
+                });
+                htmlContent += `</div></div>`;
+            }
+            document.getElementById('final-stats').innerHTML = htmlContent;
+        }
+
+        // --- FIREBASE: CARGAR LEADERBOARD (Top 10) ---
+        async function loadLeaderboard() {
+            const lbDiv = document.getElementById('leaderboard-list');
+            try {
+                // Consulta ordenada: mayores aciertos primero, luego mayor tiempo restante
+                const q = query(collection(db, "leaderboard"), orderBy("aciertos", "desc"), orderBy("tiempoRestante", "desc"), limit(10));
+                const querySnapshot = await getDocs(q);
+                
+                lbDiv.innerHTML = '';
+                let rank = 1;
+                if(querySnapshot.empty) { lbDiv.innerHTML = '<p class="text-center">Sé el primero en jugar.</p>'; return; }
+                
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    lbDiv.innerHTML += `
+                        <div class="flex justify-between items-center bg-white/5 p-2 rounded">
+                            <span><strong class="text-white">#${rank} ${data.nickname}</strong> <span class="text-xs text-gray-500">(${data.nivel})</span></span>
+                            <span class="text-green-400 font-bold">${data.aciertos} <span class="text-gray-400 text-xs font-normal">pts</span></span>
+                        </div>
+                    `;
+                    rank++;
+                });
+            } catch(e) {
+                console.log("Aún no se configura Firebase o no hay datos.", e);
+            }
+        }
+
+        // --- PANEL DE ADMINISTRACIÓN ---
+        document.getElementById('btn-show-admin').addEventListener('click', () => {
+            const pass = prompt("Contraseña de Admin (pista: swiftie):");
+            if(pass === "swiftie") { // Seguridad súper básica para demostración
+                showScreen('screen-admin');
+                
+                // Llenar combo de letras
+                const select = document.getElementById('admin-letter');
+                if(select.options.length <= 1) {
+                    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+                    alphabet.splice(14, 0, "Ñ");
+                    alphabet.forEach(l => { select.innerHTML += `<option value="${l}">${l}</option>`; });
+                }
+            } else { alert("Acceso denegado"); }
+        });
+
+        document.getElementById('btn-close-admin').addEventListener('click', () => showScreen('screen-home'));
+
+        document.getElementById('btn-save-question').addEventListener('click', async () => {
+            const letter = document.getElementById('admin-letter').value;
+            const answer = document.getElementById('admin-answer').value.toUpperCase().trim();
+            const question = document.getElementById('admin-question').value.trim();
+            const msg = document.getElementById('admin-msg');
+
+            if(!letter || !answer || !question) { msg.textContent = "Llena todos los campos."; msg.className = "text-red-400 text-sm mt-3 text-center"; return; }
+
+            try {
+                msg.textContent = "Guardando...";
+                const docRef = doc(db, "gameData", "questionBank");
+                
+                // Usamos arrayUnion para agregar la pregunta al arreglo de esa letra
+                await updateDoc(docRef, {
+                    [letter]: arrayUnion({ answer: answer, question: question })
+                });
+                
+                msg.textContent = "¡Pregunta agregada con éxito!";
+                msg.className = "text-green-400 text-sm mt-3 text-center";
+                document.getElementById('admin-answer').value = "";
+                document.getElementById('admin-question').value = "";
+            } catch(e) {
+                console.error("Error guardando", e);
+                msg.textContent = "Error. ¿Creaste el documento base?";
+                msg.className = "text-red-400 text-sm mt-3 text-center";
+            }
+        });
+
+        // Script para inicializar la DB la primera vez
+        document.getElementById('btn-seed-db').addEventListener('click', async () => {
+            const btn = document.getElementById('btn-seed-db');
+            btn.textContent = "Cargando...";
+            btn.disabled = true;
+            
+            // Datos quemados para la primera carga (versión corta para el ejemplo)
+            const baseData = {
+                'A': [
+                { answer: 'ALL TOO WELL', question: 'EMPIEZA POR A: Canción de 10 minutos considerada una de sus mejores composiciones líricas sobre una bufanda perdida.' },
+                { answer: 'AUGUST', question: 'EMPIEZA POR A: Canción de folklore que narra la perspectiva de la amante de verano de James.' },
+                { answer: 'ANTI HERO', question: 'EMPIEZA POR A: Lead single de Midnights donde Taylor admite ser el problema.' },
+                { answer: 'ALWYN', question: 'EMPIEZA POR A: Apellido del actor británico que fue pareja de Taylor durante 6 años y co-escribió canciones bajo el seudónimo William Bowery.' }
+            ],
+            'B': [
+                { answer: 'BLANK SPACE', question: 'EMPIEZA POR B: Sencillo de "1989" que parodia su imagen de "devoradora de hombres" creada por los medios.' },
+                { answer: 'BAD BLOOD', question: 'EMPIEZA POR B: Canción de 1989 cuyo video musical cuenta con un gran escuadrón de sus amigas famosas.' },
+                { answer: 'BETTY', question: 'EMPIEZA POR B: Canción de folklore donde James le pide perdón a su novia.' },
+                { answer: 'BIG MACHINE', question: 'EMPIEZA POR B: Nombre de la primera discográfica de Taylor (sin la palabra Records), cuyos masters fueron vendidos.' }
+            ],
+            'C': [
+                { answer: 'CARDIGAN', question: 'EMPIEZA POR C: Primera canción de "folklore" y objeto de merchandising de punto muy deseado.' },
+                { answer: 'CRUEL SUMMER', question: 'EMPIEZA POR C: Éxito veraniego de Lover que alcanzó el número 1 cuatro años después de su lanzamiento.' },
+                { answer: 'CORNELIA STREET', question: 'EMPIEZA POR C: Canción sobre una calle de Nueva York donde Taylor alquiló un apartamento.' },
+                { answer: 'CLEAN', question: 'EMPIEZA POR C: Última pista estándar de 1989, co-escrita con Imogen Heap, sobre superar una relación como si fuera una adicción.' }
+            ],
+            'D': [
+                { answer: 'DEAR JOHN', question: 'EMPIEZA POR D: Pista 5 de Speak Now, dirigida a un cantante con el que tuvo una relación cuando ella tenía 19 años.' },
+                { answer: 'DELICATE', question: 'EMPIEZA POR D: Sencillo de Reputation sobre el comienzo frágil de una relación en medio del escrutinio público.' },
+                { answer: 'DAYLIGHT', question: 'EMPIEZA POR D: Última canción del álbum Lover, donde dice que el amor no es rojo, sino dorado.' },
+                { answer: 'DRESS', question: 'EMPIEZA POR D: Canción de Reputation donde admite "solo compré este vestido para que me lo quitaras".' }
+            ],
+            'E': [
+                { answer: 'EVERMORE', question: 'EMPIEZA POR E: Noveno álbum de estudio, descrito como el "hermano menor" de folklore.' },
+                { answer: 'ERAS TOUR', question: 'EMPIEZA POR E: Nombre de la gira mundial que repasa todas sus etapas musicales (dos palabras).' },
+                { answer: 'EXILE', question: 'EMPIEZA POR E: Dúo épico y melancólico con Bon Iver en el álbum folklore.' },
+                { answer: 'ENCHANTED', question: 'EMPIEZA POR E: Canción de Speak Now escrita sobre conocer a Adam Young de Owl City.' }
+            ],
+            'F': [
+                { answer: 'FEARLESS', question: 'EMPIEZA POR F: Primer álbum de Taylor en ganar el Grammy al Álbum del Año.' },
+                { answer: 'FOLKLORE', question: 'EMPIEZA POR F: Álbum sorpresa lanzado en pandemia que marcó su giro hacia el indie/alternativo.' },
+                { answer: 'FIFTEEN', question: 'EMPIEZA POR F: Canción sobre su primer año de secundaria junto a su mejor amiga Abigail.' },
+                { answer: 'FALSE GOD', question: 'EMPIEZA POR F: Canción de Lover con fuerte presencia de saxofón que compara el amor con la religión.' }
+            ],
+            'G': [
+                { answer: 'GETAWAY CAR', question: 'EMPIEZA POR G: Canción de "reputation" que narra una huida romántica fallida y un triángulo amoroso.' },
+                { answer: 'GORGEOUS', question: 'EMPIEZA POR G: Canción de Reputation que inicia con la voz de la hija de Ryan Reynolds y Blake Lively.' },
+                { answer: 'GOLD RUSH', question: 'EMPIEZA POR G: Canción de evermore que describe enamorarse de alguien que todos desean, comparándolo con una fiebre.' },
+                { answer: 'GRAMMY', question: 'EMPIEZA POR G: Premio musical del cual Taylor es la única artista en ganar Álbum del Año cuatro veces.' }
+            ],
+            'H': [
+                { answer: 'HAIM', question: 'EMPIEZA POR H: Grupo de hermanas que colaboran en la canción sobre un asesinato "no body, no crime".' },
+                { answer: 'HAUNTED', question: 'EMPIEZA POR H: Canción de Speak Now caracterizada por intensos arreglos de cuerdas y temática de abandono.' },
+                { answer: 'HEY STEPHEN', question: 'EMPIEZA POR H: Canción de Fearless dedicada a un chico de la banda Love and Theft.' },
+                { answer: 'HIGH INFIDELITY', question: 'EMPIEZA POR H: Canción de Midnights que menciona la fecha 29 de abril.' }
+            ],
+            'I': [
+                { answer: 'INVISIBLE STRING', question: 'EMPIEZA POR I: Canción que habla sobre un hilo dorado del destino que la unía a su pareja.' },
+                { answer: 'ILLICIT AFFAIRS', question: 'EMPIEZA POR I: Canción de folklore sobre un amor clandestino que termina en lágrimas.' },
+                { answer: 'IVY', question: 'EMPIEZA POR I: Canción de evermore sobre una mujer casada que se enamora de alguien más, comparando el amor con una enredadera.' },
+                { answer: 'INNOCENT', question: 'EMPIEZA POR I: Pista de Speak Now escrita como respuesta compasiva al incidente de Kanye West en los VMAs.' }
+            ],
+            'J': [
+                { answer: 'JACK ANTONOFF', question: 'EMPIEZA POR J: Productor musical y amigo íntimo de Taylor, líder de la banda Bleachers (Nombre y Apellido).' },
+                { answer: 'JOE JONAS', question: 'EMPIEZA POR J: Ex novio que supuestamente rompió con ella en una llamada de 27 segundos (Nombre y Apellido).' },
+                { answer: 'JOHN MAYER', question: 'EMPIEZA POR J: Cantante que inspiró la canción sobre "juegos oscuros y retorcidos", pista 5 de Speak Now (Nombre y Apellido).' },
+                { answer: 'JULY', question: 'CONTIENE LA J: Mes en inglés en el que se celebra el Día de la Independencia, mencionado repetidamente en sus fiestas famosas.' }
+            ],
+            'K': [
+                { answer: 'KARMA', question: 'EMPIEZA POR K: Canción de "Midnights" que dice que esto es "un gato, un dios, y mi novio".' },
+                { answer: 'KANYE WEST', question: 'EMPIEZA POR K: Rapero que interrumpió su discurso de aceptación en los VMAs de 2009 (Nombre y Apellido).' },
+                { answer: 'KING OF MY HEART', question: 'EMPIEZA POR K: Canción de Reputation donde canta sobre gobernar un reino dentro de su habitación.' },
+                { answer: 'KELCE', question: 'EMPIEZA POR K: Apellido del jugador de los Kansas City Chiefs que es su pareja actual.' }
+            ],
+            'L': [
+                { answer: 'LOVER', question: 'EMPIEZA POR L: Álbum con estética rosa y tonos pastel lanzado en 2019, primero del cual fue dueña de sus masters.' },
+                { answer: 'LONDON BOY', question: 'EMPIEZA POR L: Canción dedicada a su entonces pareja británica, mencionando lugares como Camden Market.' },
+                { answer: 'LONG POND', question: 'EMPIEZA POR L: Nombre del estudio donde se grabaron las sesiones en vivo de folklore en Disney+ (Dos palabras).' },
+                { answer: 'LOOK WHAT YOU MADE ME DO', question: 'EMPIEZA POR L: Primer sencillo de Reputation donde anuncia que "la antigua Taylor está muerta".' }
+            ],
+            'M': [
+                { answer: 'MIDNIGHTS', question: 'EMPIEZA POR M: Álbum conceptual de 2022 sobre 13 noches de insomnio a lo largo de su vida.' },
+                { answer: 'MASTERMIND', question: 'EMPIEZA POR M: Canción que cierra Midnights, donde confiesa haber orquestado el encuentro con su pareja.' },
+                { answer: 'MEREDITH', question: 'EMPIEZA POR M: Nombre de su primera gata, bautizada en honor a un personaje de Grey\'s Anatomy.' },
+                { answer: 'MARJORIE', question: 'EMPIEZA POR M: Pista 13 de evermore dedicada a su abuela cantante de ópera.' }
+            ],
+            'N': [
+                { answer: 'NASHVILLE', question: 'EMPIEZA POR N: Ciudad de Tennessee a la que Taylor y su familia se mudaron para que ella persiguiera la música country.' },
+                { answer: 'NEW ROMANTICS', question: 'EMPIEZA POR N: Bonus track muy querido de 1989 que dice "la mejor gente en la vida es libre".' },
+                { answer: 'NO BODY NO CRIME', question: 'EMPIEZA POR N: Canción de evermore que narra el misterio de la desaparición y venganza de Este.' },
+                { answer: 'NOTHING NEW', question: 'EMPIEZA POR N: Vault track de Red donde colabora con Phoebe Bridgers sobre el miedo a envejecer en la industria.' }
+            ],
+            'Ñ': [
+                { answer: 'AÑO', question: 'CONTIENE LA Ñ: "1989" fue nombrado así porque es el ___ de nacimiento de Taylor.' },
+                { answer: 'SUEÑOS', question: 'CONTIENE LA Ñ: La canción "Wildest Dreams" se traduce al español como estos "salvajes".' },
+                { answer: 'ENGAÑO', question: 'CONTIENE LA Ñ: Traición amorosa, tema central de canciones como "Should\'ve Said No" y "illicit affairs".' },
+                { answer: 'COMPAÑIA', question: 'CONTIENE LA Ñ: Big Machine Records fue la primera _______ discográfica de Taylor.' }
+            ],
+            'O': [
+                { answer: 'OUT OF THE WOODS', question: 'EMPIEZA POR O: Canción producida por Jack Antonoff sobre la ansiedad de una relación, cuyo video tiene lobos y nieve.' },
+                { answer: 'OLIVIA', question: 'EMPIEZA POR O: Nombre de su segunda gata escocesa, inspirada en un personaje de Law & Order: SVU.' },
+                { answer: 'OUR SONG', question: 'EMPIEZA POR O: Sencillo de su álbum debut que ella misma escribió en la clase de matemáticas de noveno grado.' },
+                { answer: 'OURS', question: 'EMPIEZA POR O: Bonus track de Speak Now donde dice "las apuestas son altas, el agua áspera, pero este amor es..."' }
+            ],
+            'P': [
+                { answer: 'PAPER RINGS', question: 'EMPIEZA POR P: Canción rápida y alegre de "Lover" donde dice que se casaría con él con anillos de este material.' },
+                { answer: 'PARIS', question: 'EMPIEZA POR P: Ciudad europea que da título a un bonus track de Midnights (3am Edition).' },
+                { answer: 'PICTURE TO BURN', question: 'EMPIEZA POR P: Feroz canción country de su álbum debut sobre quemar los recuerdos de un mal ex.' },
+                { answer: 'PENNSYLVANIA', question: 'EMPIEZA POR P: Estado de EE.UU. donde nació Taylor, en la ciudad de West Reading.' }
+            ],
+            'Q': [
+                { answer: 'QUESTION', question: 'EMPIEZA POR Q: Canción de Midnights que samplea "Out of the Woods" y tiene un título interrogativo (Sin signo).' },
+                { answer: 'PARQUE', question: 'CONTIENE LA Q: "Centennial _____" es el lugar de Nashville mencionado en Invisible String (En español).' },
+                { answer: 'BOSQUE', question: 'CONTIENE LA Q: Escenario donde se desarrolla la estética principal del álbum folklore (Traducción de Woods).' },
+                { answer: 'CHEQUE', question: 'CONTIENE LA Q: Papel de pago. En "Blank Space" canta que tiene un espacio en blanco para escribir tu nombre, como si fuera un...' }
+            ],
+            'R': [
+                { answer: 'RED', question: 'EMPIEZA POR R: Álbum de 2012 que marca la transición al pop y contiene los hits "Trouble" y "22".' },
+                { answer: 'REPUTATION', question: 'EMPIEZA POR R: Álbum de 2017 caracterizado por una estética oscura, serpientes y temas de venganza y amor verdadero.' },
+                { answer: 'RONAN', question: 'EMPIEZA POR R: Emotiva canción benéfica escrita sobre un niño pequeño que falleció de cáncer.' },
+                { answer: 'RIGHT WHERE YOU LEFT ME', question: 'EMPIEZA POR R: Bonus track de evermore sobre estar congelada en el tiempo en un restaurante.' }
+            ],
+            'S': [
+                { answer: 'SPEAK NOW', question: 'EMPIEZA POR S: Tercer álbum de estudio, famoso por haber sido escrito íntegramente por Taylor sin co-escritores.' },
+                { answer: 'STYLE', question: 'EMPIEZA POR S: Tercer sencillo de 1989, una canción pop perfecta supuestamente sobre Harry Styles.' },
+                { answer: 'SWIFTIES', question: 'EMPIEZA POR S: Nombre del apasionado fandom mundial de Taylor Swift.' },
+                { answer: 'SHAKE IT OFF', question: 'EMPIEZA POR S: El mayor hit de su carrera, un himno de 1989 sobre ignorar a los haters.' }
+            ],
+            'T': [
+                { answer: 'TOLERATE IT', question: 'EMPIEZA POR T: Pista 5 de evermore sobre dar todo tu amor a alguien que simplemente lo soporta.' },
+                { answer: 'TORTURED POETS', question: 'EMPIEZA POR T: Primeras dos palabras de su álbum de 2024 ("The _______ _______ Department").' },
+                { answer: 'TREACHEROUS', question: 'EMPIEZA POR T: Canción de Red donde afirma que "esta pendiente es traicionera, y a mí me gusta".' },
+                { answer: 'THE MAN', question: 'EMPIEZA POR T: Canción de Lover que critica los dobles estándares sexistas de la sociedad (Dos palabras).' }
+            ],
+            'U': [
+                { answer: 'UNTOUCHABLE', question: 'EMPIEZA POR U: Pista de Fearless (Platinum Edition) que en realidad es un cover de la banda Luna Halo.' },
+                { answer: 'CRUEL', question: 'CONTIENE LA U: Adjetivo en inglés de su famoso "Summer" en el álbum Lover.' },
+                { answer: 'AUGUST', question: 'CONTIENE LA U: Mes en inglés que da título a la pista 8 de folklore.' },
+                { answer: 'HAUNTED', question: 'CONTIENE LA U: Título original en inglés de la canción de Speak Now que habla de sentirse "embrujada" o perseguida.' }
+            ],
+            'V': [
+                { answer: 'VAULT', question: 'EMPIEZA POR V: Bóveda. Nombre (en inglés) que reciben las canciones inéditas lanzadas en las regrabaciones.' },
+                { answer: 'VIGILANTE SHIT', question: 'EMPIEZA POR V: Pista de Midnights con estilo burlesque donde afirma que "últimamente se viste para la venganza".' },
+                { answer: 'VIDEOCLIP', question: 'EMPIEZA POR V: Formato visual. Taylor dirigió el "All Too Well Short Film", que funciona como un extenso...' },
+                { answer: 'VMA', question: 'EMPIEZA POR V: Siglas de la premiación de MTV donde ocurrió el infame incidente del micrófono con Kanye.' }
+            ],
+            'W': [
+                { answer: 'WILLOW', question: 'EMPIEZA POR W: Sencillo principal de evermore, cuyo video es una continuación directa del video de cardigan.' },
+                { answer: 'WILDEST DREAMS', question: 'EMPIEZA POR W: Canción de 1989 con temática cinematográfica africana en su video musical (Dos palabras).' },
+                { answer: 'WONDERLAND', question: 'EMPIEZA POR W: Bonus track de 1989 inspirado en el cuento de Alicia escrito por Lewis Carroll.' },
+                { answer: 'WHITE HORSE', question: 'EMPIEZA POR W: Balada de Fearless donde se da cuenta de que "no soy una princesa, esto no es un cuento de hadas".' }
+            ],
+            'X': [
+                { answer: 'EXILE', question: 'CONTIENE LA X: Triste dueto de folklore donde los amantes se cruzan en un pueblo y se dan señales contradictorias.' },
+                { answer: 'MAX MARTIN', question: 'CONTIENE LA X: Nombre de pila del famoso productor sueco (y su apellido) que co-escribió y produjo gran parte de 1989 y Reputation.' },
+                { answer: 'FOXES', question: 'CONTIENE LA X: "They are the hunters, we are the ____". Animales mencionados en la canción I Know Places.' },
+                { answer: 'TOXIC', question: 'CONTIENE LA X: Palabra en inglés para venenoso. Muchos fans describen la relación retratada en Illicit Affairs y The Smallest Man Who Ever Lived como algo...' }
+            ],
+            'Y': [
+                { answer: 'YOU BELONG WITH ME', question: 'EMPIEZA POR Y: Éxito country/pop de Fearless donde Taylor está en las gradas y la porrista es la capitana.' },
+                { answer: 'YOU ARE IN LOVE', question: 'EMPIEZA POR Y: Canción de 1989 sobre la relación de su amigo Jack Antonoff con Lena Dunham.' },
+                { answer: 'YOUR LOSS', question: 'EMPIEZA POR Y: "It\'s time to go" de evermore dice "Sometimes giving up is the strong thing, sometimes to run is the brave thing, sometimes walking out is the one thing that will find you the right thing. Because it is _____ _____" (Tu pérdida, en inglés).' },
+                { answer: 'YEARS', question: 'CONTIENE LA Y: En "Lover", ella pregunta "¿He conocido estos 20 segundos o 20 ______?" (Años, en inglés).' }
+            ],
+            'Z': [
+                { answer: 'MEZZOSOPRANO', question: 'CONTIENE LA Z: Clasificación técnica del tipo de voz de Taylor Swift.' },
+                { answer: 'BRAZALETES', question: 'CONTIENE LA Z: Accesorios de la amistad que los fans intercambian en el Eras Tour.' },
+                { answer: 'AZUL', question: 'CONTIENE LA Z: Color característico de la era 1989 (Y del icónico vestido que usó en el video de Out of the Woods).' },
+                { answer: 'CORAZON', question: 'CONTIENE LA Z: En Blank Space ella dice "tengo un espacio en blanco bebé, y escribiré tu nombre", pero antes dibuja esto en un árbol.' }
+            ]
+
+            };
+
+            try {
+                await setDoc(doc(db, "gameData", "questionBank"), baseData);
+                alert("Base de datos inicializada. Ya puedes agregar más preguntas.");
+                btn.textContent = "Listo";
+            } catch(e) {
+                alert("Error de permisos en Firebase. Revisa las reglas de Firestore.");
+                btn.textContent = "Error";
+            }
+        });
+
+        // Iniciar
+        window.onload = loadLeaderboard;
+
+    </script>
+</body>
+</html>
