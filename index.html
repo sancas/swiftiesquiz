@@ -67,7 +67,12 @@
         </div>
 
         <div class="main-card p-6 rounded-3xl shadow-2xl">
-            <h3 class="text-xl font-bold mb-4 text-center text-taylor-gold">Top 10 Swifties 🏆</h3>
+            <h3 class="text-xl font-bold mb-2 text-center text-taylor-gold">Top 10 Swifties 🏆</h3>
+            
+            <div class="flex justify-center mb-4">
+                <input type="date" id="leaderboard-date" class="bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 cursor-pointer">
+            </div>
+
             <div id="leaderboard-list" class="flex flex-col gap-2 text-sm">
                 <p class="text-center text-gray-400">Cargando puntuaciones...</p>
             </div>
@@ -139,7 +144,10 @@
                         </select>
                         <input type="text" id="admin-answer" placeholder="Respuesta (Ej: CARDIGAN)" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white mb-3 uppercase">
                         <textarea id="admin-question" placeholder="Pregunta (Ej: EMPIEZA POR C...)" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white mb-3 h-20"></textarea>
-                        <button id="btn-save-question" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all">GUARDAR PREGUNTA</button>
+                        <div class="flex gap-2 mb-3">
+                            <button id="btn-save-question" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all">GUARDAR PREGUNTA</button>
+                            <button id="btn-cancel-edit" class="hidden bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded-xl transition-all" title="Cancelar edición">✕</button>
+                        </div>
                         <p id="admin-msg" class="text-green-400 text-sm mt-2 text-center h-5"></p>
                     </div>
 
@@ -161,7 +169,7 @@
                         <h3 class="font-bold text-lg text-[#D4AF37]">Preguntas en la Base de Datos</h3>
                         <button id="btn-refresh-list" class="text-sm bg-white/10 px-3 py-1 rounded hover:bg-white/20">↻ Refrescar</button>
                     </div>
-                    <div class="bg-black/40 border border-white/10 rounded-xl p-4 h-[400px] overflow-y-auto">
+                    <div class="bg-black/40 border border-white/10 rounded-xl p-4 h-[600px] overflow-y-auto">
                         <ul id="admin-questions-list" class="space-y-4 text-sm">
                             <li class="text-gray-400 text-center mt-10">Cargando inventario...</li>
                         </ul>
@@ -174,7 +182,7 @@
     <script type="module">
         // 1. IMPORTAR FIREBASE CON AUTHENTICATION
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, getDocs, addDoc, query, orderBy, limit, doc, getDoc, setDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, addDoc, query, orderBy, limit, doc, getDoc, setDoc, updateDoc, arrayUnion, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         // ⚠️ PEGA TU CONFIGURACIÓN DE FIREBASE AQUÍ ⚠️
@@ -198,6 +206,9 @@
         let currentDifficulty = "";
         let maxTime = 300, tolerance = 0, currentIndex = 0, successCount = 0, errorCount = 0, timeLeft = 0, timerInterval;
         let gameQuestions = [], incorrectAnswers = [], gameActive = false;
+        let localQuestionBank = {}; 
+        let editingLetter = null;
+        let editingIndex = null;
         
         const screens = document.querySelectorAll('.screen');
         const rosco = document.getElementById('rosco'), input = document.getElementById('answer-input'), definition = document.getElementById('definition'), letterIndicator = document.getElementById('letter-indicator'), timerDisplay = document.getElementById('timer'), successDisplay = document.getElementById('success-count'), errorDisplay = document.getElementById('error-count');
@@ -413,27 +424,78 @@
             document.getElementById('final-stats').innerHTML = htmlContent;
         }
 
-        // --- FIREBASE: CARGAR LEADERBOARD (Top 10) ---
-        async function loadLeaderboard() {
+        // --- FIREBASE: CARGAR LEADERBOARD (Top 10 por Fecha) ---
+        async function loadLeaderboard(dateString = null) {
             const lbDiv = document.getElementById('leaderboard-list');
+            const dateInput = document.getElementById('leaderboard-date');
+            
+            // 1. Determinar qué fecha buscar
+            let fechaBusqueda = dateString;
+            if (!fechaBusqueda) {
+                // Si no mandaron fecha, usamos la de hoy
+                const hoy = new Date();
+                fechaBusqueda = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+            }
+            
+            // Actualizar el valor del input para que el usuario vea qué día está viendo
+            if(dateInput) dateInput.value = fechaBusqueda;
+
+            lbDiv.innerHTML = '<p class="text-center text-gray-400 text-xs mt-2">Buscando archivos en el baúl...</p>';
+
             try {
-                const q = query(collection(db, "leaderboard"), orderBy("aciertos", "desc"), orderBy("tiempoRestante", "desc"), limit(10));
-                const snap = await getDocs(q);
+                // 2. Armar las cadenas ISO para el inicio y fin del día en UTC
+                const inicioDia = `${fechaBusqueda}T00:00:00.000Z`;
+                const finDia = `${fechaBusqueda}T23:59:59.999Z`;
+
+                // 3. Consulta a Firebase (Nos obliga a ordenar por fechaCompleta)
+                const q = query(
+                    collection(db, "leaderboard"), 
+                    where("fecha", ">=", inicioDia),
+                    where("fecha", "<=", finDia),
+                    orderBy("fecha", "desc") 
+                );
+                
+                const querySnapshot = await getDocs(q);
+
+                // Extraer los datos a un arreglo
+                const resultadosDelDia = [];
+                querySnapshot.forEach((doc) => resultadosDelDia.push(doc.data()));
+
+                // 4. ORDENAMIENTO EN JAVASCRIPT (La magia para arreglar el ranking)
+                resultadosDelDia.sort((a, b) => {
+                    // Primero ordenamos por aciertos (de mayor a menor)
+                    if (b.aciertos !== a.aciertos) {
+                        return b.aciertos - a.aciertos; 
+                    }
+                    // Si hay empate en aciertos, ordenamos por tiempo restante (mayor a menor)
+                    return b.tiempoRestante - a.tiempoRestante;
+                });
+                
                 lbDiv.innerHTML = '';
                 let rank = 1;
-                if(snap.empty) { lbDiv.innerHTML = '<p class="text-center">Sé el primero en jugar.</p>'; return; }
-                snap.forEach((doc) => {
-                    const data = doc.data();
-                    lbDiv.innerHTML += `<div class="flex justify-between items-center bg-white/5 p-2 rounded">
-                        <span><strong class="text-white">#${rank} ${data.nickname}</strong> <span class="text-xs text-gray-500">(${data.nivel})</span></span>
-                        <span class="text-green-400 font-bold">${data.aciertos} pts</span></div>`;
+                
+                if(resultadosDelDia.length === 0) { 
+                    lbDiv.innerHTML = '<p class="text-center text-gray-400 mt-2">Nadie jugó este día. 💔</p>'; 
+                    return; 
+                }
+                
+                // Recorremos hasta 10 elementos o la longitud del array
+                const limiteAmostrar = Math.min(10, resultadosDelDia.length);
+                for(let i = 0; i < limiteAmostrar; i++) {
+                    const data = resultadosDelDia[i];
+                    lbDiv.innerHTML += `
+                        <div class="flex justify-between items-center bg-white/5 p-2 rounded mb-1">
+                            <span><strong class="text-white">#${rank} ${data.nickname}</strong> <span class="text-xs text-gray-500">(${data.nivel})</span></span>
+                            <span class="text-green-400 font-bold">${data.aciertos} <span class="text-gray-400 text-xs font-normal">pts</span></span>
+                        </div>
+                    `;
                     rank++;
-                });
-            } catch(e) { console.log("Firebase no configurado", e); }
+                }
+            } catch(e) {
+                console.error("Error cargando leaderboard", e);
+                lbDiv.innerHTML = '<p class="text-center text-red-400 text-xs mt-2">Error de conexión o falta crear el índice en Firebase.</p>';
+            }
         }
-
-        // Lógica de Juego (Event Listeners de Inicio, Rosco, y Fin de juego idénticos a los del bloque anterior)
-        // [Insertar código de inicialización del juego, rosco y temporizador aquí]
         
         // ====== SISTEMA DE ADMINISTRACIÓN ======
         // Función auxiliar para normalizar y comparar (ignora tildes y mayúsculas)
@@ -489,7 +551,20 @@
             }
         });
 
-        // 5. Cargar Inventario de Preguntas
+        function resetEditMode() {
+            editingLetter = null;
+            editingIndex = null;
+            const btnSave = document.getElementById('btn-save-question');
+            btnSave.textContent = "GUARDAR PREGUNTA";
+            btnSave.classList.replace('bg-yellow-600', 'bg-blue-600');
+            document.getElementById('btn-cancel-edit').classList.add('hidden');
+            document.getElementById('admin-answer').value = "";
+            document.getElementById('admin-question').value = "";
+        }
+
+        document.getElementById('btn-cancel-edit').addEventListener('click', resetEditMode);
+
+        // 5. Cargar Inventario de Preguntas (ACTUALIZADO CON BOTONES)
         async function loadAdminInventory() {
             const list = document.getElementById('admin-questions-list');
             list.innerHTML = '<li class="text-gray-400 text-center mt-10">Descargando base de datos...</li>';
@@ -497,23 +572,28 @@
             try {
                 const docSnap = await getDoc(doc(db, "gameData", "questionBank"));
                 if (docSnap.exists()) {
-                    const data = docSnap.data();
+                    localQuestionBank = docSnap.data(); // Guardamos copia en memoria
                     list.innerHTML = '';
                     
-                    // Ordenar alfabéticamente
-                    const sortedLetters = Object.keys(data).sort();
+                    const sortedLetters = Object.keys(localQuestionBank).sort();
                     
                     sortedLetters.forEach(letter => {
-                        const questionsArray = data[letter];
+                        const questionsArray = localQuestionBank[letter];
                         if(questionsArray && questionsArray.length > 0) {
-                            questionsArray.forEach(q => {
+                            questionsArray.forEach((q, index) => {
                                 list.innerHTML += `
                                 <li class="border-b border-white/10 pb-3">
-                                    <div class="flex items-start gap-2">
-                                        <span class="bg-white/20 text-white px-2 py-1 rounded font-bold text-xs">${letter}</span>
-                                        <div>
-                                            <p class="text-green-400 font-bold mb-1">${q.answer}</p>
-                                            <p class="text-gray-300 text-xs italic">${q.question}</p>
+                                    <div class="flex justify-between items-start gap-2">
+                                        <div class="flex items-start gap-2">
+                                            <span class="bg-white/20 text-white px-2 py-1 rounded font-bold text-xs mt-1">${letter}</span>
+                                            <div>
+                                                <p class="text-green-400 font-bold mb-1">${q.answer}</p>
+                                                <p class="text-gray-300 text-xs italic">${q.question}</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex gap-3 ml-2 shrink-0 mt-1">
+                                            <button class="btn-edit text-blue-400 hover:text-blue-300 transition-colors" data-letter="${letter}" data-index="${index}" title="Editar">✏️</button>
+                                            <button class="btn-delete text-red-400 hover:text-red-300 transition-colors" data-letter="${letter}" data-index="${index}" title="Eliminar">🗑️</button>
                                         </div>
                                     </div>
                                 </li>`;
@@ -531,7 +611,55 @@
 
         document.getElementById('btn-refresh-list').addEventListener('click', loadAdminInventory);
 
-        // 6. Guardar Nueva Pregunta (Individual con Validación)
+        // --- DELEGACIÓN DE EVENTOS: EDITAR Y ELIMINAR ---
+        document.getElementById('admin-questions-list').addEventListener('click', async (e) => {
+            const editBtn = e.target.closest('.btn-edit');
+            const deleteBtn = e.target.closest('.btn-delete');
+
+            // LÓGICA DE ELIMINAR
+            if (deleteBtn) {
+                const letter = deleteBtn.dataset.letter;
+                const index = deleteBtn.dataset.index;
+                const qAnswer = localQuestionBank[letter][index].answer;
+
+                if (confirm(`¿Segura que quieres eliminar permanentemente la respuesta "${qAnswer}"?`)) {
+                    try {
+                        let newArray = [...localQuestionBank[letter]];
+                        newArray.splice(index, 1); // Quitamos la pregunta del arreglo
+                        
+                        await updateDoc(doc(db, "gameData", "questionBank"), { [letter]: newArray });
+                        loadAdminInventory(); // Recargamos visualmente
+                    } catch (error) {
+                        alert("Error al eliminar. Revisa permisos.");
+                        console.error(error);
+                    }
+                }
+            }
+
+            // LÓGICA DE EDITAR (Cargar en formulario)
+            if (editBtn) {
+                const letter = editBtn.dataset.letter;
+                const index = editBtn.dataset.index;
+                const q = localQuestionBank[letter][index];
+
+                document.getElementById('admin-letter').value = letter;
+                document.getElementById('admin-answer').value = q.answer;
+                document.getElementById('admin-question').value = q.question;
+
+                // Activamos el "Modo Edición"
+                editingLetter = letter;
+                editingIndex = index;
+                const btnSave = document.getElementById('btn-save-question');
+                btnSave.textContent = "ACTUALIZAR PREGUNTA";
+                btnSave.classList.replace('bg-blue-600', 'bg-yellow-600');
+                document.getElementById('btn-cancel-edit').classList.remove('hidden');
+                
+                // Hacemos scroll suave hacia arriba para que vea el formulario
+                document.getElementById('admin-letter').scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+
+        // 6. Guardar o Actualizar Pregunta (LÓGICA COMBINADA)
         document.getElementById('btn-save-question').addEventListener('click', async () => {
             const letter = document.getElementById('admin-letter').value;
             const answer = document.getElementById('admin-answer').value.toUpperCase().trim();
@@ -540,40 +668,49 @@
 
             if(!letter || !answer || !question) { 
                 msg.textContent = "Llena todos los campos."; 
-                msg.className = "text-red-400 text-sm mt-2 text-center"; 
+                msg.className = "text-red-400 text-sm mt-3 text-center font-bold"; 
                 return; 
             }
 
             try {
-                msg.textContent = "Validando...";
-                msg.className = "text-yellow-400 text-sm mt-2 text-center";
-                
+                msg.textContent = "Guardando cambios...";
+                msg.className = "text-yellow-400 text-sm mt-3 text-center";
                 const docRef = doc(db, "gameData", "questionBank");
-                const docSnap = await getDoc(docRef);
-                let currentData = docSnap.exists() ? docSnap.data() : {};
 
-                // Validar duplicado
-                if (checkDuplicate(currentData[letter], answer)) {
-                    msg.textContent = "Error: Esta respuesta ya existe para esta letra.";
-                    msg.className = "text-red-500 text-sm mt-2 text-center font-bold";
-                    return;
+                if (editingLetter !== null && editingIndex !== null) {
+                    // ====== MODO ACTUALIZACIÓN ======
+                    let currentArray = [...localQuestionBank[editingLetter]];
+                    
+                    if (editingLetter === letter) {
+                        // Editó texto pero mantuvo la misma letra
+                        currentArray[editingIndex] = { answer: answer, question: question };
+                        await updateDoc(docRef, { [letter]: currentArray });
+                    } else {
+                        // Cambió la letra a la que pertenece (Ej: Era A y la movió a la B)
+                        currentArray.splice(editingIndex, 1); // La borramos de la letra vieja
+                        await updateDoc(docRef, { 
+                            [editingLetter]: currentArray, 
+                            [letter]: arrayUnion({ answer: answer, question: question }) 
+                        });
+                    }
+                    msg.textContent = "¡Pregunta actualizada!";
+                    resetEditMode();
+                } else {
+                    // ====== MODO NUEVA PREGUNTA (Igual que antes) ======
+                    // Nota: Asumo que aquí ya tenías tu validación de checkDuplicate si la implementaste
+                    await updateDoc(docRef, { [letter]: arrayUnion({ answer: answer, question: question }) });
+                    msg.textContent = "¡Pregunta agregada con éxito!";
+                    document.getElementById('admin-answer').value = "";
+                    document.getElementById('admin-question').value = "";
                 }
 
-                // Si no hay duplicado, guardar
-                msg.textContent = "Guardando...";
-                await updateDoc(docRef, { [letter]: arrayUnion({ answer: answer, question: question }) });
-                
-                msg.textContent = "¡Pregunta agregada con éxito!";
-                msg.className = "text-green-400 text-sm mt-2 text-center";
-                document.getElementById('admin-answer').value = "";
-                document.getElementById('admin-question').value = "";
-                
+                msg.className = "text-green-400 text-sm mt-3 text-center font-bold";
                 loadAdminInventory();
                 setTimeout(() => { msg.textContent = ""; }, 3000);
             } catch(e) {
-                console.error(e);
+                console.error("Error guardando", e);
                 msg.textContent = "Error al conectar con la base de datos.";
-                msg.className = "text-red-400 text-sm mt-2 text-center";
+                msg.className = "text-red-400 text-sm mt-3 text-center font-bold";
             }
         });
 
@@ -650,7 +787,20 @@
                 msg.className = "text-red-400 text-sm mt-2 text-center";
             }
         });
-        window.onload = loadLeaderboard;
+        
+        // Iniciar página y escuchar cambios en el calendario
+        window.onload = () => {
+            loadLeaderboard(); // Carga el día actual por defecto
+            
+            const dateInput = document.getElementById('leaderboard-date');
+            if (dateInput) {
+                dateInput.addEventListener('change', (e) => {
+                    // Cuando el usuario cambia la fecha, recargamos la tabla con esa fecha
+                    loadLeaderboard(e.target.value);
+                });
+            }
+        };
+
     </script>
 </body>
 </html>
